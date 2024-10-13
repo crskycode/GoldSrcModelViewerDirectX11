@@ -476,6 +476,12 @@ public:
 	}
 
 
+	const std::wstring& GetFilePath() const
+	{
+		return m_FilePath;
+	}
+
+
 	studiohdr_t* GetStudioHeader() const
 	{
 		return m_StudioHeader;

@@ -410,6 +410,8 @@ public:
 		if (!VerifyStudioFile(m_FileData))
 			return;
 
+		m_FilePath = filePath;
+
 		m_StudioHeader = reinterpret_cast<studiohdr_t*>(m_FileData.data());
 
 		m_StudioTextureHeader = m_StudioHeader;
@@ -508,6 +510,8 @@ public:
 
 
 private:
+
+	std::wstring m_FilePath;
 
 	std::vector<uint8_t> m_FileData;
 	studiohdr_t* m_StudioHeader;

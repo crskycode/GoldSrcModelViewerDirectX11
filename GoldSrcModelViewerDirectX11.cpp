@@ -25,8 +25,8 @@ using Microsoft::WRL::ComPtr;
 //                        Window Variables
 // ------------------------------------------------------------
 
-static constexpr uint32_t SCREEN_WIDTH = 800;
-static constexpr uint32_t SCREEN_HEIGHT = 600;
+static constexpr uint32_t SCREEN_WIDTH = 400;
+static constexpr uint32_t SCREEN_HEIGHT = 400;
 
 constexpr TCHAR g_szClassName[] = TEXT("D3D11WindowClass");
 
@@ -764,5 +764,5 @@ void LoadModel()
 	g_d3dStudioModelRenderer->Init(g_D3DDevice.Get(), g_D3DDeviceContext.Get());
 
 	g_d3dStudioModel = std::make_unique<D3DStudioModel>();
-	g_d3dStudioModel->Load(g_D3DDevice.Get(), L"hostage.mdl");
+	g_d3dStudioModel->Load(g_D3DDevice.Get(), L"v_ak47.mdl");
 }

@@ -1221,6 +1221,13 @@ private:
 	};
 
 
+	enum class ModelCategory
+	{
+		Normal,
+		Gun,
+	};
+
+
 	static std::vector<uint8_t> ReadAllBytes(const std::string& filePath)
 	{
 		std::vector<uint8_t> buffer;
@@ -1337,6 +1344,29 @@ private:
 	}
 
 
+	ModelCategory GuessModelCategory()
+	{
+		if (!m_D3DStudioModel)
+			return ModelCategory::Normal;
+
+		if (!m_D3DStudioModel->GetStudioModel())
+			return ModelCategory::Normal;
+
+		const auto& filePath = m_D3DStudioModel->GetStudioModel()->GetFilePath();
+
+		std::filesystem::path path(filePath);
+
+		std::wstring fileName = path.stem().wstring();
+
+		_wcslwr_s(fileName.data(), fileName.capacity());
+
+		if (fileName.starts_with(L"v_"))
+			return ModelCategory::Gun;
+
+		return ModelCategory::Normal;
+	}
+
+
 	void SetCamera()
 	{
 		m_World = XMMatrixScaling(-1, 1, 1); // Make Right-Handed Coordinate System
@@ -1345,9 +1375,22 @@ private:
 		XMVECTOR At = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
 		XMVECTOR Up = XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f); // Z up
 
+		float fov = 65;
+
+		auto category = GuessModelCategory();
+
+		switch (category)
+		{
+			case ModelCategory::Gun:
+				Eye = XMVectorSet(-1.0f, 1.4f, 1.0f, 0.0f);
+				At = XMVectorSet(-5.0f, 1.4f, 1.0f, 0.0f);
+				fov = 90;
+				break;
+		}
+
 		m_View = XMMatrixLookAtLH(Eye, At, Up);
 
-		m_Projection = XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(65), m_ViewportWidth / (float)m_ViewportHeight, 0.01f, 1000.0f);
+		m_Projection = XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(fov), m_ViewportWidth / (float)m_ViewportHeight, 0.01f, 1000.0f);
 	}
 
 

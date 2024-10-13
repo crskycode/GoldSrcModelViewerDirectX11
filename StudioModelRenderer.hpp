@@ -1370,6 +1370,9 @@ private:
 					if (!mesh.NumIndices)
 						continue;
 
+					if (mesh.TextureId >= textures.size())
+						continue;
+
 					const auto& texture = textures[mesh.TextureId];
 
 					if (!texture.Texture)

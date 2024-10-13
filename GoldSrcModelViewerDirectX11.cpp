@@ -764,5 +764,5 @@ void LoadModel()
 	g_d3dStudioModelRenderer->Init(g_D3DDevice.Get(), g_D3DDeviceContext.Get());
 
 	g_d3dStudioModel = std::make_unique<D3DStudioModel>();
-	g_d3dStudioModel->Load(g_D3DDevice.Get(), "vip.mdl");
+	g_d3dStudioModel->Load(g_D3DDevice.Get(), L"hostage.mdl");
 }

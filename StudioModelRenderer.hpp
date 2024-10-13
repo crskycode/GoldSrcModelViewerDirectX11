@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <filesystem>
 
 using Microsoft::WRL::ComPtr;
 
@@ -149,6 +150,13 @@ private:
 	}
 
 
+	template<typename T>
+	inline T* AdjustPtr(void* base, int offset)
+	{
+		return reinterpret_cast<T*>(reinterpret_cast<intptr_t>(base) + offset);
+	}
+
+
 	static uint32_t InsertVertex(std::vector<Vertex>& vertices, const Vertex& vertex)
 	{
 		auto it = std::find_if(vertices.cbegin(), vertices.cend(), [&vertex](const auto& elem) {
@@ -174,8 +182,8 @@ private:
 		auto studioVertices = GetPtr<VEC3>(studioModel->vertindex);
 		auto studioVertexBones = GetPtr<uint8_t>(studioModel->vertinfoindex);
 		auto studioNormals = GetPtr<VEC3>(studioModel->normindex);
-		auto studioTextures = GetPtr<mstudiotexture_t>(m_StudioHeader->textureindex);
-		auto studioSkinRef = GetPtr<uint16_t>(m_StudioHeader->skinindex);
+		auto studioTextures = AdjustPtr<mstudiotexture_t>(m_StudioTextureHeader, m_StudioTextureHeader->textureindex);
+		auto studioSkinRef = AdjustPtr<uint16_t>(m_StudioTextureHeader, m_StudioTextureHeader->skinindex);
 
 		mesh.TextureId = studioSkinRef[studioMesh->skinref];
 
@@ -295,7 +303,7 @@ private:
 
 		auto size = studioTexture->width * studioTexture->height;
 
-		auto indices = GetPtr<uint8_t>(studioTexture->index);
+		auto indices = AdjustPtr<uint8_t>(m_StudioTextureHeader, studioTexture->index);
 		auto palette = indices + size;
 
 		texture.Data.resize(static_cast<size_t>(size * 4));
@@ -316,14 +324,14 @@ private:
 	}
 
 
-	static std::vector<uint8_t> ReadAllBytes(const std::string& filePath)
+	static std::vector<uint8_t> ReadAllBytes(const std::wstring& filePath)
 	{
 		std::vector<uint8_t> buffer;
 
 		std::ifstream file(filePath, std::ios::binary);
 
 		if (!file)
-			throw std::runtime_error("Cannot open file: " + filePath);
+			return {};
 
 		file.seekg(0, std::ios::end);
 		size_t file_size = file.tellg();
@@ -333,19 +341,103 @@ private:
 		file.read(reinterpret_cast<char*>(buffer.data()), file_size);
 
 		if (!file)
-			throw std::runtime_error("Failed to read file: " + filePath);
+			return {};
 
 		return buffer;
 	}
 
 
+	static std::wstring AddSuffixToFileName(const std::wstring& filePath, const std::wstring& suffix)
+	{
+		std::filesystem::path path(filePath);
+
+		std::wstring fileName = path.stem().wstring();
+		std::wstring extension = path.extension().wstring();
+
+		std::wstring newFileName = fileName + suffix + extension;
+
+		return (path.parent_path() / newFileName).wstring();
+	}
+
+
+	static bool VerifyStudioFile(std::vector<uint8_t>& buffer)
+	{
+		if (buffer.size() < sizeof(studiohdr_t))
+			return false;
+
+		auto signature = *reinterpret_cast<int*>(buffer.data());
+
+		if (signature != 0x54534449) // "IDST"
+			return false;
+
+		auto version = *reinterpret_cast<int*>(buffer.data() + 4);
+
+		if (version != 10)
+			return false;
+
+		return true;
+	}
+
+
+	static bool VerifySequenceStudioFile(std::vector<uint8_t>& buffer)
+	{
+		if (buffer.size() < sizeof(studioseqhdr_t))
+			return false;
+
+		auto signature = *reinterpret_cast<int*>(buffer.data());
+
+		if (signature != 0x51534449) // "IDSQ"
+			return false;
+
+		auto version = *reinterpret_cast<int*>(buffer.data() + 4);
+
+		if (version != 10)
+			return false;
+
+		return true;
+	}
+
+
 public:
 
-	void LoadFromFile(const std::string& filePath)
+	void LoadFromFile(const std::wstring& filePath)
 	{
 		m_FileData = ReadAllBytes(filePath);
 
+		if (m_FileData.empty())
+			return;
+
+		if (!VerifyStudioFile(m_FileData))
+			return;
+
 		m_StudioHeader = reinterpret_cast<studiohdr_t*>(m_FileData.data());
+
+		m_StudioTextureHeader = m_StudioHeader;
+
+		if (m_StudioHeader->numtextures == 0)
+		{
+			// "testT.mdl"
+			auto externalFileName = AddSuffixToFileName(filePath, L"T");
+
+			m_StudioTextureFileData = ReadAllBytes(externalFileName);
+
+			if (VerifyStudioFile(m_StudioTextureFileData))
+			{
+				m_StudioTextureHeader = reinterpret_cast<studiohdr_t*>(m_StudioTextureFileData.data());
+			}
+		}
+
+		if (m_StudioTextureHeader->numtextures > 0)
+		{
+			m_Textures.reserve(static_cast<size_t>(m_StudioTextureHeader->numtextures));
+
+			for (int i = 0; i < m_StudioTextureHeader->numtextures; i++)
+			{
+				auto studioTexture = AdjustPtr<mstudiotexture_t>(m_StudioTextureHeader, m_StudioTextureHeader->textureindex) + i;
+				auto texture = LoadTexture(studioTexture);
+				m_Textures.push_back(std::move(texture));
+			}
+		}
 
 		if (m_StudioHeader->numbodyparts > 0)
 		{
@@ -359,20 +451,25 @@ public:
 			}
 		}
 
-		if (m_StudioHeader->numtextures > 0)
+		if (m_StudioHeader->numseqgroups > 1)
 		{
-			m_Textures.reserve(static_cast<size_t>(m_StudioHeader->numtextures));
-
-			for (int i = 0; i < m_StudioHeader->numtextures; i++)
+			for (int i = 1; i < m_StudioHeader->numseqgroups; i++)
 			{
-				auto studiotexture = GetPtr<mstudiotexture_t>(m_StudioHeader->textureindex) + i;
-				auto texture = LoadTexture(studiotexture);
-				m_Textures.push_back(std::move(texture));
+				wchar_t suffix[4];
+
+				// "test01.mdl"
+				swprintf_s(suffix, L"%02d", i);
+
+				auto seqGroupFileName = AddSuffixToFileName(filePath, suffix);
+
+				auto buffer = ReadAllBytes(seqGroupFileName);
+
+				if (!VerifySequenceStudioFile(buffer))
+					continue;
+
+				m_StudioSequenceGroupFileData[i] = std::move(buffer);
+				m_StudioSequenceGroupHeaders[i] = reinterpret_cast<studioseqhdr_t*>(m_StudioSequenceGroupFileData[i].data());
 			}
-		}
-		else
-		{
-			// TODO: Load external texture
 		}
 	}
 
@@ -395,8 +492,16 @@ public:
 	}
 
 
+	auto GetSequenceGroupHeaders()
+	{
+		return (studioseqhdr_t**)m_StudioSequenceGroupHeaders;
+	}
+
+
 	StudioModel()
 		: m_StudioHeader{}
+		, m_StudioTextureHeader{}
+		, m_StudioSequenceGroupHeaders{}
 	{
 		// TODO
 	}
@@ -406,6 +511,13 @@ private:
 
 	std::vector<uint8_t> m_FileData;
 	studiohdr_t* m_StudioHeader;
+
+	std::vector<uint8_t> m_StudioTextureFileData;
+	studiohdr_t* m_StudioTextureHeader;
+
+	std::vector<uint8_t> m_StudioSequenceGroupFileData[32];
+	studioseqhdr_t* m_StudioSequenceGroupHeaders[32];
+
 	std::vector<BodyPart> m_BodyParts;
 	std::vector<Texture> m_Textures;
 };
@@ -619,8 +731,13 @@ private:
 			return (mstudioanim_t*)((byte*)m_StudioHeader + pseqgroup->data + pseqdesc->animindex);
 		}
 
-		// TODO: Load external sequence file
-		return NULL;
+		if (!m_StudioSequenceGroupHeaders)
+			return NULL;
+
+		if (!m_StudioSequenceGroupHeaders[pseqdesc->seqgroup])
+			return NULL;
+
+		return (mstudioanim_t*)((byte*)m_StudioSequenceGroupHeaders[pseqdesc->seqgroup] + pseqdesc->animindex);
 	}
 
 
@@ -749,6 +866,12 @@ public:
 	}
 
 
+	void SetStudioSequenceGroupHeaders(studioseqhdr_t** studioSequenceGroupHeaders)
+	{
+		m_StudioSequenceGroupHeaders = studioSequenceGroupHeaders;
+	}
+
+
 	void SetSequence(int seq)
 	{
 		m_Sequence = seq;
@@ -761,9 +884,7 @@ public:
 	}
 
 
-	using bonetransforms_t = const float(*)[3][4];
-
-	bonetransforms_t GetBoneTransforms() const
+	auto GetBoneTransforms() const
 	{
 		return m_BoneTransforms;
 	}
@@ -771,6 +892,7 @@ public:
 
 	StudioModelAnimating()
 		: m_StudioHeader{}
+		, m_StudioSequenceGroupHeaders{}
 		, m_Sequence{}
 		, m_Frame{}
 		, m_Body{}
@@ -796,6 +918,7 @@ public:
 private:
 
 	studiohdr_t* m_StudioHeader;
+	studioseqhdr_t** m_StudioSequenceGroupHeaders;
 	int m_Sequence;
 	float m_Frame;
 	int m_Body;
@@ -1010,7 +1133,7 @@ private:
 
 public:
 
-	void Load(ID3D11Device* device, const std::string& filePath)
+	void Load(ID3D11Device* device, const std::wstring& filePath)
 	{
 		m_StudioModel = std::make_unique<StudioModel>();
 
@@ -1214,7 +1337,7 @@ private:
 
 		m_View = XMMatrixLookAtLH(Eye, At, Up);
 
-		m_Projection = XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(90), m_ViewportWidth / (float)m_ViewportHeight, 0.01f, 1000.0f);
+		m_Projection = XMMatrixPerspectiveFovLH(DirectX::XMConvertToRadians(65), m_ViewportWidth / (float)m_ViewportHeight, 0.01f, 1000.0f);
 	}
 
 
@@ -1320,6 +1443,7 @@ public:
 		//
 
 		m_Animating.SetStudioHeader(m_D3DStudioModel->GetStudioModel()->GetStudioHeader());
+		m_Animating.SetStudioSequenceGroupHeaders(m_D3DStudioModel->GetStudioModel()->GetSequenceGroupHeaders());
 		m_Animating.SetUpBones();
 		auto boneTransforms = m_Animating.GetBoneTransforms();
 
@@ -1398,7 +1522,7 @@ public:
 	}
 
 
-	void SetViewport(int viewWidth, int viewHeight)
+	void SetViewport(UINT viewWidth, UINT viewHeight)
 	{
 		m_ViewportWidth = viewWidth;
 		m_ViewportHeight = viewHeight;
@@ -1453,8 +1577,8 @@ private:
 	XMMATRIX m_View;
 	XMMATRIX m_Projection;
 
-	int m_ViewportWidth;
-	int m_ViewportHeight;
+	UINT m_ViewportWidth;
+	UINT m_ViewportHeight;
 
 	D3DStudioModel* m_D3DStudioModel;
 

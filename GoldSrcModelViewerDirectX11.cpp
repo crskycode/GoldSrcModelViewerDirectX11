@@ -50,6 +50,7 @@ ComPtr<ID3D11RenderTargetView> g_RenderTargetView;
 ComPtr<ID3D11Texture2D> g_DepthStencilTexture;
 ComPtr<ID3D11DepthStencilView> g_DepthStencilView;
 ComPtr<ID3D11RasterizerState> g_RasterizerState;
+ComPtr<ID3D11BlendState> g_BlendState;
 ComPtr<ID3D11Debug> g_D3DDebug;
 
 #ifdef RENDER_TO_BITMAP
@@ -583,6 +584,31 @@ HRESULT InitD3D(HWND hWnd)
 	g_D3DDeviceContext->RSSetState(g_RasterizerState.Get());
 
 	//
+	// Create blend state
+	//
+
+	D3D11_BLEND_DESC blend{};
+	blend.RenderTarget[0].BlendEnable = TRUE;
+	blend.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+	blend.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+	blend.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+	blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
+	blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+	blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+	hr = g_D3DDevice->CreateBlendState(&blend, g_BlendState.ReleaseAndGetAddressOf());
+
+	if (FAILED(hr))
+		return hr;
+
+	//
+	// Use blending
+	// 
+
+	g_D3DDeviceContext->OMSetBlendState(g_BlendState.Get(), NULL, 0xffffffff);
+
+	//
 	// Finally, we setup the viewport
 	//
 
@@ -764,5 +790,5 @@ void LoadModel()
 	g_d3dStudioModelRenderer->Init(g_D3DDevice.Get(), g_D3DDeviceContext.Get());
 
 	g_d3dStudioModel = std::make_unique<D3DStudioModel>();
-	g_d3dStudioModel->Load(g_D3DDevice.Get(), L"v_ak47.mdl");
+	g_d3dStudioModel->Load(g_D3DDevice.Get(), L"topol1.mdl");
 }

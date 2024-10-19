@@ -1370,7 +1370,7 @@ private:
 
 		std::wstring fileName = path.stem().wstring();
 
-		_wcslwr_s(fileName.data(), fileName.capacity());
+		std::transform(fileName.begin(), fileName.end(), fileName.begin(), [](int c) { return std::tolower(c); });
 
 		if (fileName.starts_with(L"v_"))
 			return ModelCategory::Gun;
@@ -1433,6 +1433,10 @@ private:
 		float fov = 65;
 		float cameraDistance = (height / 2.0f) / tan(fov / 2.0f) * 4.0f;
 
+		// BUG
+		if (cameraDistance < 0)
+			cameraDistance = 50.0f;
+
 		auto category = GuessModelCategory();
 
 		switch (category)
@@ -1443,7 +1447,7 @@ private:
 				fov = 90;
 				break;
 			default:
-				Eye = XMVectorSet(-cameraDistance, 0.0f, 0.0f, 0.0f);
+				Eye = XMVectorSet(-cameraDistance, 0.0f, cameraDistance * 0.25f, 0.0f);
 		}
 
 		m_View = XMMatrixLookAtLH(Eye, At, Up);
